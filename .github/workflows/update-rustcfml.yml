@@ -1,8 +1,23 @@
 name: Update RustCFML
 
-# Watches the upstream RustCFML repo for new releases and, when a newer tag
-# is available, bumps the `cfml-worker` dependency, verifies the worker still
-# compiles, and opens a pull request for review.
+# Keeps the `cfml-worker` dependency on the engine's current STABLE release: it
+# bumps Cargo.toml, proves the worker still compiles for wasm32, and commits
+# straight to main.
+#
+# Two things it deliberately does NOT do any more, because between them they
+# turned this from automation into a chore:
+#
+#   * It no longer follows every upstream TAG. RustCFML publishes every version
+#     tag as a prerelease and a human promotes one to stable once it has been
+#     run in anger (see the engine's docs/releasing.md), so following tags meant
+#     a bump for every patch release — a dozen in two days — most of which
+#     nobody wanted yet. `gh release view` resolves to the promoted one.
+#   * It no longer opens a pull request. One PR per release, each superseding
+#     the last and none of them merged, is how this repo ended up with six open
+#     PRs and a dependency six versions behind. The build gate is what makes a
+#     PR unnecessary: the wasm32 build must pass against the new engine before
+#     anything is committed, and if it fails the run fails and main is untouched.
+#     Any superseded PRs left over are closed automatically.
 #
 # Mechanism: scheduled poll (no changes or access required in the RustCFML repo).
 # You can also trigger it by hand from the Actions tab (workflow_dispatch).
@@ -43,14 +58,15 @@ jobs:
           current="$(grep -oP 'cfml-worker\s*=.*tag\s*=\s*"\K[^"]+' Cargo.toml)"
           echo "Current: $current"
 
-          # Highest semver tag upstream. Fetch the 100 most recent tags and
-          # sort with `sort -V` so we pick the true latest regardless of API order.
-          latest="$(gh api "repos/${UPSTREAM_REPO}/tags?per_page=100" \
-            --jq '.[].name' | sort -V | tail -n1)"
-          echo "Latest:  $latest"
+          # The engine's current STABLE release — GitHub's "latest release"
+          # endpoint, which excludes prereleases, and every RustCFML tag is
+          # published as a prerelease until a human promotes it. Following tags
+          # instead would bump this worker for every patch release.
+          latest="$(gh release view --repo "${UPSTREAM_REPO}" --json tagName --jq .tagName)"
+          echo "Latest stable: $latest"
 
           if [ -z "$latest" ]; then
-            echo "Could not resolve a latest tag from ${UPSTREAM_REPO}." >&2
+            echo "Could not resolve a stable release from ${UPSTREAM_REPO}." >&2
             exit 1
           fi
 
@@ -96,12 +112,18 @@ jobs:
 
           # Update the tag in Cargo.toml and refresh Cargo.lock to the exact tag.
           sed -i "s|tag = \"${current}\"|tag = \"${latest}\"|" Cargo.toml
+          # Prove the edit landed rather than trusting sed's exit status: a
+          # pattern that matches nothing exits 0, and the run would then commit
+          # a "bump" that never happened and a build that proved nothing.
+          grep -q "tag = \"${latest}\"" Cargo.toml \
+            || { echo "::error::Cargo.toml still does not pin ${latest} after the edit"; exit 1; }
           cargo update -p cfml-worker --precise "${latest}"
 
-          # Fail the run (and skip the PR) if the new version doesn't compile.
+          # Fail the run — and leave main untouched — if the new engine does not
+          # compile. This gate is what makes committing without review safe.
           cargo build --release --target wasm32-unknown-unknown
 
-      - name: Open pull request
+      - name: Commit to main
         if: steps.versions.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
@@ -109,28 +131,25 @@ jobs:
           LATEST: ${{ steps.versions.outputs.latest }}
         run: |
           set -euo pipefail
-          branch="deps/rustcfml-${LATEST}"
-
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Idempotent: if the branch/PR already exists, don't recreate it.
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-            echo "Branch $branch already exists upstream — PR already open. Skipping."
-            exit 0
-          fi
-
-          git checkout -b "$branch"
           git add Cargo.toml Cargo.lock
-          git commit -m "Upgrade cfml-worker to RustCFML ${LATEST}"
-          git push origin "$branch"
+          git commit -m "Upgrade cfml-worker to RustCFML ${LATEST} (was ${CURRENT})
 
-          gh pr create \
-            --title "Upgrade cfml-worker to RustCFML ${LATEST}" \
-            --body "Automated dependency bump: \`${CURRENT}\` → \`${LATEST}\`.
+          The engine's ${LATEST} was promoted to stable upstream. Compiled for
+          wasm32-unknown-unknown in CI before this was committed."
+          git push origin "HEAD:${{ github.ref_name }}"
 
-          Upstream: https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}
+          # Anything this workflow opened before it committed directly is now
+          # superseded — and a stack of those is exactly how the dependency got
+          # six versions behind.
+          for n in $(gh pr list --state open --search "head:deps/rustcfml-" --json number --jq '.[].number'); do
+            gh pr close "$n" --comment "Superseded: the dependency is now on \`${LATEST}\` on main." --delete-branch || true
+          done
 
-          The worker was compiled against the new version in CI (\`cargo build --release --target wasm32-unknown-unknown\`) before this PR was opened." \
-            --base main \
-            --head "$branch"
+          {
+            echo "### Upgraded to RustCFML \`${LATEST}\`"
+            echo
+            echo "From \`${CURRENT}\`. The wasm32 build passed against the new engine"
+            echo "before this was committed to \`${{ github.ref_name }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
