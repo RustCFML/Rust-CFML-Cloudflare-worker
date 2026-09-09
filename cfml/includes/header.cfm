@@ -203,6 +203,12 @@ pre.output {
     margin: 12px 0;
     white-space: pre-wrap;
 }
+/* The response body is shown whole, so it needs its own scroll — a 45 KB page
+   inlined at full height buries the rest of the result. */
+pre.response-body {
+    max-height: 60vh;
+    overflow-y: auto;
+}
 table.q {
     width: 100%;
     border-collapse: collapse;

@@ -182,12 +182,12 @@
                 <p><strong>Response headers</strong></p>
                 <table>
                 <cfloop collection="#result.responseHeader ?: {}#" item="hname">
-                    <tr><th>#encodeForHTML( hname )#</th><td><code>#encodeForHTML( left( toString( result.responseHeader[ hname ] ), 300 ) )#</code></td></tr>
+                    <tr><th>#encodeForHTML( hname )#</th><td><code>#encodeForHTML( toString( result.responseHeader[ hname ] ) )#</code></td></tr>
                 </cfloop>
                 </table>
 
-                <p><strong>fileContent</strong></p>
-                <pre>#encodeForHTML( left( result.fileContent ?: "", 4000 ) )#</pre>
+                <p><strong>fileContent</strong> &mdash; #len( result.fileContent ?: "" )# characters, in full</p>
+                <pre class="response-body">#encodeForHTML( result.fileContent ?: "" )#</pre>
             </cfif>
         </div>
     </div>
