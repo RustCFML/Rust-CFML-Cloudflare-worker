@@ -10,6 +10,7 @@ A reference Cloudflare Workers host for **[RustCFML](https://github.com/RustCFML
 
 - **Lazy session storage in Workers KV** (`this.lazySessionCreation`).
 - **Durable Object–backed application scope** with strong consistency across regions.
+- **Outbound `<cfhttp>`** over the Workers `fetch` API, so a Worker can call a backend API — GET, POST, form posts and multipart file uploads, with the same result struct as the native binary. A file part takes its content from `value=` since there is no filesystem to read a path from. The unlisted `/http.cfm` is a test bench for all four shapes against any URL you point it at.
 - **Cron-driven KV tidy-up** that deletes expired session blobs on a configurable schedule. (`onSessionEnd` is deliberately not implemented on this host — see notes below.)
 - **`<cfquery>` against Postgres or MySQL via Cloudflare Hyperdrive**, using JSPI to make the underlying async driver look synchronous to CFML. Dispatched through `postgres` (postgres.js) or `mysql2/promise`, selected from the Hyperdrive binding's `connectionString` prefix.
 - **An `/echo/` HTTP test server** — an always-on request mirror used by the [RustCFML engine test-suite](https://github.com/RustCFML/RustCFML) to exercise `<cfhttp>` in place of the flaky public `httpbin.org`. See [The `/echo/` HTTP test server](#the-echo-http-test-server) below.
