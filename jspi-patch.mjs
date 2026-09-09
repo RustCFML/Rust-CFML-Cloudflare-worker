@@ -1,6 +1,6 @@
 // Post-build patch: wrap the wasm `fetch` + `scheduled` exports in
 // WebAssembly.promising so that the JSPI Suspending imports
-// (cfml_jspi_hyperdrive_query, cfml_jspi_do_fetch) can suspend the wasm
+// (cfml_jspi_hyperdrive_query, cfml_jspi_do_fetch, cfml_jspi_http_fetch) can suspend the wasm
 // stack, and bypass the wasm-bindgen JS adapter that otherwise hides the
 // Suspending from the wasm import object.
 //
@@ -134,6 +134,10 @@ function bypassAdapter(importName, { required = false } = {}) {
 
 bypassAdapter("cfml_jspi_hyperdrive_query", { required: true });
 bypassAdapter("cfml_jspi_do_fetch"); // optional — DO path uses plain async
+// <cfhttp> transport. Required: handler.rs registers the cfhttp builtin
+// unconditionally, so the import is always reachable and never tree-shaken.
+// If it ever is, failing loudly beats a Worker whose cfhttp cannot suspend.
+bypassAdapter("cfml_jspi_http_fetch", { required: true });
 
 // ─── 3b. Wire setEnv/clearEnv around the Entrypoint.fetch dispatch ──
 //
